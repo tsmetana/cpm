@@ -1,0 +1,140 @@
+#!/usr/bin/python3
+"""Container Package Manager"""
+
+import dnf
+import sys
+import os
+from optparse import OptionParser
+import traceback
+
+
+class Util():
+    def input_bool(self, msg):
+        """Return True if user answered 'yes' to msg."""
+        ans = input(msg).lower()
+        return (ans == 'y' or ans == 'yes')
+
+
+class MainApp():
+    def __init__(self):
+        self.util = Util()
+
+
+    def _check_installroot(self, installroot):
+        if not os.path.isdir(installroot):
+            raise OSError("The target directory '%s' does not exist."
+                    % (installroot,))
+
+
+    def _parse_argv(self, argv):
+        parser = OptionParser()
+        parser.add_option("-m", "--machine", dest = "machine",
+                help = "Name of the machine")
+        parser.add_option("-D", "--directory", dest = "directory",
+                help = "Use DIR as the base containers directory", metavar="DIR")
+        return parser.parse_args(args = argv)
+
+
+    def _setup_base(self, base, installroot):
+        rel = dnf.rpm.detect_releasever(base.conf.installroot)
+        base.conf.substitutions['releasever'] = rel
+        base.read_all_repos()
+        base.conf.installroot = installroot
+        base.fill_sack(load_system_repo=False)
+
+
+    def _guess_machines_dir(self):
+        # Find the default directory with containers/machines
+        # This list has been taken from the machinectl manual page
+        search_list = ['/var/lib/machines',
+                '/usr/local/lib/machines',
+                '/usr/lib/machines',
+                '/var/lib/container']
+        ret = None
+        for d in search_list:
+            if os.path.isdir(d):
+                ret = d
+                break
+        if not ret:
+            # Meh... so, this one
+            ret = '/var/lib/machines'
+
+        return ret
+
+
+    def _install(self, installroot, pkgs):
+        # If the machine directory doesn't exist, try to create it
+        if not os.path.isdir(installroot):
+            if self.util.input_bool("The machine base directory '%s' does not exist. Create now? [y/N]: "
+                    % installroot):
+                os.makedirs(installroot)
+            else:
+                raise OSError("The target directory '%s' does not exist."
+                    % (installroot,))
+        with dnf.Base() as base:
+            self._setup_base(base, installroot)
+            for p in pkgs:
+                base.install(p)
+            base.resolve()
+            base.download_packages(base.transaction.install_set)
+            base.do_transaction()
+
+
+    def _upgrade(self, installroot, pkgs):
+        self._check_installroot(installroot)
+        with dnf.Base() as base:
+            self._setup_base(base, installroot)
+        if len(pkgs) > 0:
+            base.upgrade(pkgs)
+        else:
+            base.upgrade_all()
+        base.resolve()
+        base.download_packages(base.transaction.install_set)
+        base.do_transaction()
+
+
+    def _remove(self, installroot, pkgs):
+        self._check_installroot(installroot)
+        with dnf.Base() as base:
+            self._setup_base(base, installroot)
+            for p in pkgs:
+                base.remove(p)
+            base.resolve()
+            base.do_transaction()
+
+
+    def run(self, argv):
+        opts, pos_args = self._parse_argv(argv)
+        if len(pos_args) == 0:
+            raise RuntimeError('No action specified')
+        action = pos_args[0]
+        machine = opts.machine
+        machines_dir = opts.directory
+        if not machine:
+            raise RuntimeError("The machine name (-m) must be specified")
+        if not machines_dir:
+            machines_dir = self._guess_machines_dir()
+        machine_root = os.path.normpath(machines_dir + '/' + machine)
+
+        if action == 'install':
+            self._install(machine_root, pos_args[1:])
+        elif action == 'update' or action == 'upgrade':
+            self._upgrade(machine_root, pos_args[1:])
+        elif action == 'remove' or action == 'delete':
+            self._remove(machine_root, pos_args[1:])
+        elif action == 'checkinstall':
+            print("CHECKINSTALL!")
+        else:
+            raise RuntimeError("Unkown action: '%s'" % (action,))
+
+
+if __name__ == '__main__':
+    app = MainApp();
+    try:
+        app.run(sys.argv[1:])
+        sys.exit(0)
+    except Exception as e:
+        traceback.print_exc()
+        sys.exit(e)
+
+# vim: set expandtab: syntax=python:
