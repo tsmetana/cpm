@@ -6,6 +6,7 @@ import sys
 import os
 from optparse import OptionParser
 import traceback
+import rpm
 
 
 class Util():
@@ -103,6 +104,31 @@ class MainApp():
             base.do_transaction()
 
 
+    def _list(self, installroot):
+        rpmdb_path = os.path.normpath(installroot + "/var/lib/rpm")
+        rpm.addMacro("_dbpath", rpmdb_path)
+        ts = rpm.TransactionSet()
+        mi = ts.dbMatch()
+        # FIXME: Read the locales settings properly
+        enc = sys.stdout.encoding
+        for m in mi:
+            print("%s-%s-%s" % (m['name'].decode(enc),
+            m['version'].decode(enc), m['release'].decode(enc)))
+
+
+    def _checkinstall(self, installroot, files):
+        print("Running checkinstall...")
+        # TODO: Is it really always /var/lib/rpm? Should be able to figure out...
+        rpmdb_path = os.path.normpath(installroot + "/var/lib/rpm")
+        print("Using database at '%s'" %(rpmdb_path,))
+        rpm.addMacro("_dbpath", rpmdb_path)
+        ts = rpm.TransactionSet()
+        for f in files:
+            mi = ts.dbMatch('FILENAMES', f)
+            for m in mi:
+                print(m)
+
+
     def run(self, argv):
         opts, pos_args = self._parse_argv(argv)
         if len(pos_args) == 0:
@@ -122,8 +148,10 @@ class MainApp():
             self._upgrade(machine_root, pos_args[1:])
         elif action == 'remove' or action == 'delete':
             self._remove(machine_root, pos_args[1:])
+        elif action == 'list':
+            self._list(machine_root)
         elif action == 'checkinstall':
-            print("CHECKINSTALL!")
+            self._checkinstall(machine_root, pos_args[1:])
         else:
             raise RuntimeError("Unkown action: '%s'" % (action,))
 
