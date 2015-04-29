@@ -4,16 +4,44 @@
 import dnf
 import sys
 import os
+import re
 from optparse import OptionParser
 import traceback
 import rpm
 
-
 class Util():
+    def __init__(self):
+        self._ignore_files_re = re.compile(r"""^/usr/share/mime/.*
+                | ^/etc/passwd-$
+                | ^/etc/group-$
+                | ^/etc/shadow-$
+                | ^/etc/gshadow-$
+                | ^/dev/.*
+                | ^/sys/.*
+                | ^/var/lib/rpm/.*
+                | ^/var/lib/dnf/.*
+                | .*\.rpmnew$
+                | .*\.rpmsave$
+                | ^/etc/.pwd.lock$
+                """, re.X)
+
     def input_bool(self, msg):
         """Return True if user answered 'yes' to msg."""
         ans = input(msg).lower()
         return (ans == 'y' or ans == 'yes')
+
+
+    def hdr_nvr_str(self, h):
+        """ Convert the rpm header to n-v-r string """
+        # FIXME: Read the locales settings properly
+        enc = sys.stdout.encoding
+        ret = "%s-%s-%s" % (h['name'].decode(enc),
+            h['version'].decode(enc), h['release'].decode(enc))
+        return ret
+
+    def cond_append(self, filelist, path):
+        if not self._ignore_files_re.match(path):
+            filelist.append(path)
 
 
 class MainApp():
@@ -109,25 +137,29 @@ class MainApp():
         rpm.addMacro("_dbpath", rpmdb_path)
         ts = rpm.TransactionSet()
         mi = ts.dbMatch()
-        # FIXME: Read the locales settings properly
-        enc = sys.stdout.encoding
         for m in mi:
-            print("%s-%s-%s" % (m['name'].decode(enc),
-            m['version'].decode(enc), m['release'].decode(enc)))
+            print(self.util.hdr_nvr_str(m))
 
 
-    def _checkinstall(self, installroot, files):
-        print("Running checkinstall...")
+    def _checkinstall(self, installroot):
         # TODO: Is it really always /var/lib/rpm? Should be able to figure out...
         rpmdb_path = os.path.normpath(installroot + "/var/lib/rpm")
-        print("Using database at '%s'" %(rpmdb_path,))
+        print("Scanning '%s'..." %(installroot,))
         rpm.addMacro("_dbpath", rpmdb_path)
         ts = rpm.TransactionSet()
-        for f in files:
-            mi = ts.dbMatch('FILENAMES', f)
-            for m in mi:
-                print(m)
-
+        save_wd = os.getcwd()
+        orphans = []
+        os.chdir(installroot)
+        for root, dirs, files in os.walk('.'):
+            for name in files:
+                f = os.path.normpath(root[1:] + '/' + name)
+                mi = ts.dbMatch(rpm.RPMDBI_INSTFILENAMES, f)
+                if (len(mi) == 0):
+                    self.util.cond_append(orphans, f)
+        os.chdir(save_wd)
+        print("Done. Found %d orphan files." % (len(orphans),))
+        for f in orphans:
+            print(f)
 
     def run(self, argv):
         opts, pos_args = self._parse_argv(argv)
@@ -151,7 +183,7 @@ class MainApp():
         elif action == 'list':
             self._list(machine_root)
         elif action == 'checkinstall':
-            self._checkinstall(machine_root, pos_args[1:])
+            self._checkinstall(machine_root)
         else:
             raise RuntimeError("Unkown action: '%s'" % (action,))
 
