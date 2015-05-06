@@ -51,9 +51,14 @@ class Util():
 
 
 class SpecFile():
-    def __init__(self, name=None, version='', release='', summary='',
-            license='Proprietary', description='', source = ''
-            build_req=[], req=[], files=[], chlog=[]):
+    def __init__(self, name = 'unnamed',
+            version = '1.0',
+            release = '1',
+            summary = None,
+            license = 'Proprietary',
+            description = None,
+            source = None,
+            build_req = [], req = [], files = [], chlog = []):
         self.name = name
         self.version = version
         self.release = release
@@ -65,6 +70,7 @@ class SpecFile():
         self.req = req,
         self.files = files
         self.chlog = chlog
+        path = "%s-%s-%s.spec" % (name, version, release)
 
     def write(self, path):
         with open(path, "w") as fw:
@@ -90,6 +96,7 @@ Source0: %(source)s
 
 %install
 
+%files
 """ % self)
             for f in files:
                 fw.write("%attr(%o, %s, %s) %s" % (f['mode'], f['user'], f['group'],
