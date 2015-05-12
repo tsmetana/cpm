@@ -12,6 +12,7 @@ from optparse import OptionParser
 import traceback
 import rpm
 import subprocess
+from tempfile import NamedTemporaryFile
 
 class Util(object):
     def __init__(self):
@@ -89,6 +90,7 @@ License: %(license)s
 
 Source0: %(source)s
 """ % self.__dict__)
+            # TODO: Discover the requires (leaf packgaes of the installroot)
             for r in self.req:
                 fw.write("Requires: %s" % r)
             fw.write("""
@@ -96,16 +98,42 @@ Source0: %(source)s
 %(description)s
 
 %%prep
-%%setup -q
+rm -rf %%{buildroot}
 
 %%build
 
 %%install
+# Only unpack the content of the source file
+cd %%{buildroot}
+tar xxvf %%{SOURCE0}
 
 %%files
 """ % self.__dict__)
             for f in self.files:
                 fw.write("%%attr(%(mode)o, %(user)s, %(group)s) %(path)s\n" % f)
+
+
+    def mksourcefile(self, installroot):
+        if not os.path.isdir(self.sourcedir):
+                os.makedirs(self.sourcedir)
+        tarball = os.path.normpath(self.sourcedir + "/" + self.source)
+        filelist = NamedTemporaryFile()
+        for f in self.files:
+            filelist.write(b'.')
+            filelist.write(bytes(f['path'], 'utf-8'))
+            filelist.write(b'\n')
+        filelist.flush()
+        print("Creating source file '%s'" % tarball)
+        save_wd = os.getcwd()
+        os.chdir(installroot)
+        subprocess.check_call(["tar", "cjvf", tarball, "-T", filelist.name])
+        os.chdir(save_wd)
+        filelist.close()
+
+
+    def buildrpm(self):
+        specpath = os.path.normpath(self.specdir + "/" + self.path)
+        subprocess.check_call(["rpmbuild", "-bb", specpath])
 
 
 class MainApp(object):
@@ -239,9 +267,11 @@ class MainApp(object):
         os.chdir(save_wd)
         print("Done. Found %d orphan files." % (len(orphans),))
         spec = SpecFile(name = self.machine, files = orphans)
-        print("Specdir: %(specdir)s, Sourcedir %(sourcedir)s" % spec.__dict__)
+        spec.mksourcefile(installroot)
         print("Writing '%s'" % spec.path)
         spec.write()
+        print("Building binary package of '%s'" % spec.path)
+        spec.buildrpm()
 
     def run(self, argv):
         opts, pos_args = self._parse_argv(argv)
