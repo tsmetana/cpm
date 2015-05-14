@@ -90,7 +90,6 @@ License: %(license)s
 
 Source0: %(source)s
 """ % self.__dict__)
-            # TODO: Discover the requires (leaf packgaes of the installroot)
             for r in self.req:
                 fw.write("Requires: %s" % r)
             fw.write("""
@@ -248,6 +247,27 @@ class MainApp(object):
         return None
 
 
+    def _find_leaves(self, ts):
+        mi = ts.dbMatch()
+        provides = {}
+        leaves = {}
+        for m in mi:
+            leaves[m['name']] = True
+            for p in m['PROVIDENAME']:
+                provides[p] = {}
+                provides[p]['pkg'] = m
+                provides[p]['req'] = False
+        for m in mi:
+            for r in m['REQUIRENAME']:
+                provides[r]['req'] = True
+        for p in provides:
+            if provides[p]['req']:
+                del leaves[provides[p]['pkg']['name']]
+        for l in leaves:
+            print(l)
+
+
+
     def _checkinstall(self, installroot):
         # TODO: Is it really always /var/lib/rpm? Should be able to figure out...
         rpmdb_path = os.path.normpath(installroot + "/var/lib/rpm")
@@ -266,6 +286,8 @@ class MainApp(object):
 
         os.chdir(save_wd)
         print("Done. Found %d orphan files." % (len(orphans),))
+        print("Looking for leaf packages...")
+        self._find_leaves(ts)
         spec = SpecFile(name = self.machine, files = orphans)
         spec.mksourcefile(installroot)
         print("Writing '%s'" % spec.path)
