@@ -255,16 +255,22 @@ class MainApp(object):
             leaves[m['name']] = True
             for p in m['PROVIDENAME']:
                 provides[p] = {}
-                provides[p]['pkg'] = m
+                provides[p]['pkg'] = m['name']
                 provides[p]['req'] = False
+        mi = ts.dbMatch()
         for m in mi:
             for r in m['REQUIRENAME']:
                 provides[r]['req'] = True
         for p in provides:
             if provides[p]['req']:
-                del leaves[provides[p]['pkg']['name']]
-        for l in leaves:
-            print(l)
+                try:
+                    print("Deleting form leaves list: %s" % (provides[p]['pkg']))
+                    del leaves[provides[p]['pkg']]
+                except KeyError:
+                    pass
+        print("Found %d leaf packages" % (len(leaves)))
+        for p in leaves:
+            print("%s" % p)
 
 
 
