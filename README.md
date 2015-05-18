@@ -4,6 +4,8 @@ The `cpm` script is a proof-of-concept of managing application or OS containers 
 It is focused on systemd-nspawn type of containers and uses dnf/rpm for package management. The script is still
 work-in-progress and might not work or even cause damage to your system.
 
+The TODO lists in every use-case outline the PoC completness.
+
 ## Intended Use-Cases
 
 The script serves as a wrapper to `dnf` and makes the systemd-nspawn containers somewhat easier to manage. However the
@@ -25,8 +27,10 @@ specified explicitly (`-D` option).
 * Install the `httpd` package and all its dependencies using the `/var/lib/machines/my_machine` as the installation root
 
 TODO:
+* Add user iteractivity
 * Do not install %doc files
 * Automatically clean up the dnf cache inside the container
+* Allow the source repository selection
 
 ### 2. Updating Container Content
 
