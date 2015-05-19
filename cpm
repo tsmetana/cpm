@@ -1,6 +1,19 @@
 #!/usr/bin/python3
 """Container Package Manager"""
-
+#
+# This copyrighted material is made available to anyone wishing to use,
+# modify, copy, or redistribute it subject to the terms and conditions of
+# the GNU General Public License v.2, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY expressed or implied, including the implied warranties of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+# Public License for more details.
+#
+# (c) 2015 Tomas Smetana <tomas@smetana.name>
+#
+# The leaf search algorithm stolen from the GPLv2+ licensed leaves dnf plugin
+# by Emil Renner Berthing.
+#
 import dnf
 import sys
 import os
@@ -72,11 +85,12 @@ class SpecFile(object):
         self.source = source if source else "%s-%s.tar.bz2" % (name, version)
         self.req = req or []
         self.files = files or []
-        self.path = "%s-%s-%s.spec" % (name, version, release)
+        self.specname = "%s-%s-%s.spec" % (name, version, release)
         self.sourcedir = subprocess.check_output(['rpmbuild', '-E',
             '%{_sourcedir}'], universal_newlines = True)[:-1]
         self.specdir = subprocess.check_output(['rpmbuild', '-E',
             '%{_specdir}'], universal_newlines = True)[:-1]
+        self.path = os.path.normpath(self.specdir + '/' + self.specname)
 
 
     def write(self):
@@ -89,10 +103,12 @@ Summary: %(summary)s
 License: %(license)s
 
 Source0: %(source)s
+
 """ % self.__dict__)
             for r in self.req:
-                fw.write("Requires: %s" % r)
+                fw.write("Requires: %s >= %s" % (r.name, r.evr))
             fw.write("""
+
 %%description
 %(description)s
 
@@ -110,6 +126,7 @@ tar xxvf %%{SOURCE0}
 """ % self.__dict__)
             for f in self.files:
                 fw.write("%%attr(%(mode)o, %(user)s, %(group)s) %(path)s\n" % f)
+            fw.flush()
 
 
     def mksourcefile(self, installroot):
@@ -131,8 +148,7 @@ tar xxvf %%{SOURCE0}
 
 
     def buildrpm(self):
-        specpath = os.path.normpath(self.specdir + "/" + self.path)
-        subprocess.check_call(["rpmbuild", "-bb", specpath])
+        subprocess.check_call(["rpmbuild", "-bb", self.path])
 
 
 class MainApp(object):
@@ -247,31 +263,121 @@ class MainApp(object):
         return None
 
 
-    def _find_leaves(self, ts):
-        mi = ts.dbMatch()
-        provides = {}
-        leaves = {}
-        for m in mi:
-            leaves[m['name']] = True
-            for p in m['PROVIDENAME']:
-                provides[p] = {}
-                provides[p]['pkg'] = m['name']
-                provides[p]['req'] = False
-        mi = ts.dbMatch()
-        for m in mi:
-            for r in m['REQUIRENAME']:
-                provides[r]['req'] = True
-        for p in provides:
-            if provides[p]['req']:
-                try:
-                    print("Deleting form leaves list: %s" % (provides[p]['pkg']))
-                    del leaves[provides[p]['pkg']]
-                except KeyError:
-                    pass
-        print("Found %d leaf packages" % (len(leaves)))
-        for p in leaves:
-            print("%s" % p)
+    def _buildgraph(self, base):
+        """
+        Load the list of installed packages and their dependencies using
+        hawkey, and build the dependency graph and the graph of reverse
+        dependencies.
+        """
+        sack = dnf.sack.rpmdb_sack(base)
+        pkgmap = dict()
+        packages = []
+        depends = []
+        rdepends = []
+        deps = set()
+        providers = set()
 
+        for i, pkg in enumerate(sack.query()):
+            pkgmap[pkg] = i
+            packages.append(pkg)
+            rdepends.append([])
+
+        for i, pkg in enumerate(packages):
+            for req in pkg.requires:
+                sreq = str(req)
+                if sreq.startswith('rpmlib(') or sreq == 'solvable:prereqmarker':
+                    continue
+                for dpkg in sack.query().filter(provides=req):
+                    providers.add(pkgmap[dpkg])
+                if i not in providers:
+                    deps.update(providers)
+                providers.clear()
+
+            deplist = list(deps)
+            deps.clear()
+            depends.append(deplist)
+            for j in deplist:
+                rdepends[j].append(i)
+
+        return (packages, depends, rdepends)
+
+
+    def _kosaraju(self, graph, rgraph):
+        """
+        Run Kosaraju's algorithm to find strongly connected components
+        in the graph, and return the list of nodes in the components
+        without any incoming edges.
+        """
+        N = len(graph)
+        rstack = []
+        stack = []
+        tag = [False] * N
+
+        # do depth-first searches in the graph
+        # and push nodes to rstack "on the way up"
+        # until all nodes have been pushed.
+        # tag nodes so we don't visit them more than once
+        for u in range(N):
+            if tag[u]:
+                continue
+
+            stack.append(u)
+            tag[u] = True
+            while stack:
+                u = stack[-1]
+                if u >= 0:
+                    stack[-1] = -1 - u
+                    for v in graph[u]:
+                        if not tag[v]:
+                            stack.append(v)
+                            tag[v] = True
+                else:
+                    stack.pop()
+                    rstack.append(-1 - u)
+
+        # now searches beginning at nodes popped from
+        # rstack in the graph with all edges reversed
+        # will give us the strongly connected components.
+        # the incoming edges to each component is the
+        # union of incoming edges to each node in the
+        # component minus the incoming edges from
+        # component nodes themselves.
+        # now all nodes are tagged, so this time let's
+        # remove the tags as we visit each node.
+        leaves = []
+        scc = []
+        sccredges = set()
+        while rstack:
+            v = rstack.pop()
+            if not tag[v]:
+                continue
+
+            stack.append(v)
+            tag[v] = False
+            while stack:
+                v = stack.pop()
+                redges = rgraph[v]
+                scc.append(v)
+                sccredges.update(redges)
+                for u in redges:
+                    if tag[u]:
+                        stack.append(u)
+                        tag[u] = False
+
+            sccredges.difference_update(scc)
+            if not sccredges:
+                leaves.extend(scc)
+            del scc[:]
+            sccredges.clear()
+
+        return leaves
+
+
+    def _find_leaves(self, installroot):
+        with dnf.Base() as base:
+            self._setup_base(base, installroot)
+            (packages, depends, rdepends) = self._buildgraph(base)
+            return [packages[i] for i in self._kosaraju(depends, rdepends)]
 
 
     def _checkinstall(self, installroot):
@@ -293,13 +399,14 @@ class MainApp(object):
         os.chdir(save_wd)
         print("Done. Found %d orphan files." % (len(orphans),))
         print("Looking for leaf packages...")
-        self._find_leaves(ts)
-        spec = SpecFile(name = self.machine, files = orphans)
+        leaves = self._find_leaves(installroot)
+        spec = SpecFile(name = self.machine, files = orphans, req = leaves)
         spec.mksourcefile(installroot)
         print("Writing '%s'" % spec.path)
         spec.write()
-        print("Building binary package of '%s'" % spec.path)
+        print("Building binary package from '%s'" % spec.path)
         spec.buildrpm()
+
 
     def run(self, argv):
         opts, pos_args = self._parse_argv(argv)
