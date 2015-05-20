@@ -177,6 +177,7 @@ class MainApp(object):
         base.conf.substitutions['releasever'] = rel
         base.read_all_repos()
         base.conf.installroot = installroot
+        base.conf.tsflags.append('nodocs')
         base.fill_sack(load_system_repo=False)
 
 
