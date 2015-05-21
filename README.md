@@ -4,7 +4,7 @@ The `cpm` script is a proof-of-concept of managing application or OS containers 
 It is focused on systemd-nspawn type of containers and uses dnf/rpm for package management. The script is still
 work-in-progress and might not work or even cause damage to your system.
 
-The TODO lists in every use-case outline the PoC completness.
+The TODO lists in every use-case outline the PoC completeness.
 
 ## Intended Use-Cases
 
@@ -21,13 +21,13 @@ cpm install -m "my_machine" httpd
 ```
 
 This will:
-* Find the location where the container root filesystems reside (`/var/lib/machines` by default); optionall the locaction can be
+* Find the location where the container root filesystems reside (`/var/lib/machines` by default); optionally the location can be
 specified explicitly (`-D` option).
 * Create the new root directory if not exists already (`/var/lib/machines/my_machine` in the example).
 * Install the `httpd` package and all its dependencies using the `/var/lib/machines/my_machine` as the installation root
 
 TODO:
-* Add user iteractivity
+* Add user interactivity (confirmations; progress)
 * Do not install %doc files
 * Automatically clean up the dnf cache inside the container
 * Allow the source repository selection
@@ -71,7 +71,7 @@ To get a list of "my_machine" packages:
 cpm list -m "my_machine"
 ```
 
-### 5. Create a Container "Definiton" Package
+### 5. Create a Container "Definition" Package
 
 The main point of the script is to easily build an package that would contain all the modifications made to the container
 root directory.
