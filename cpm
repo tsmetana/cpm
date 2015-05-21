@@ -172,13 +172,13 @@ class MainApp(object):
         return parser.parse_args(args = argv)
 
 
-    def _setup_base(self, base, installroot):
+    def _setup_base(self, base, installroot, sysrepo = False):
         rel = dnf.rpm.detect_releasever(base.conf.installroot)
         base.conf.substitutions['releasever'] = rel
         base.read_all_repos()
         base.conf.installroot = installroot
         base.conf.tsflags.append('nodocs')
-        base.fill_sack(load_system_repo=False)
+        base.fill_sack(load_system_repo = sysrepo)
 
 
     def _guess_machines_dir(self):
@@ -221,7 +221,7 @@ class MainApp(object):
     def _upgrade(self, installroot, pkgs):
         self._check_installroot(installroot)
         with dnf.Base() as base:
-            self._setup_base(base, installroot)
+            self._setup_base(base, installroot, sysrepo = True)
         if len(pkgs) > 0:
             base.upgrade(pkgs)
         else:
@@ -234,7 +234,7 @@ class MainApp(object):
     def _remove(self, installroot, pkgs):
         self._check_installroot(installroot)
         with dnf.Base() as base:
-            self._setup_base(base, installroot)
+            self._setup_base(base, installroot, sysrepo = True)
             for p in pkgs:
                 base.remove(p)
             base.resolve()
